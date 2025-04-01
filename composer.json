@@ -1,0 +1,30 @@
+{
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/mishagodovanuk/keycrm"
+        }
+    ],
+    "require": {
+        "mishagodovanuk/keycrm": "dev-main",
+        "ext-iconv": "*"
+    }
+    ,
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "name": "mihod/maryline-service",
+    "description": "Maryline key crm updater",
+    "type": "project",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Mihod\\MarylineService\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "mishagodovanuk",
+            "email": "mishagodovanuk@gmail.com"
+        }
+    ]
+}
