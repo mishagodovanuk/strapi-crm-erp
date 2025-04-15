@@ -73,6 +73,7 @@ class CategorySyncer
             $existingCategory = $this->getStrapiCategoryByKeycrmId($keycrmCat->id);
 
             if ($existingCategory) {
+                //TODO used for updating functionality, temporary disabled.
                 //$this->updateStrapiCategory($existingCategory['id'], $keycrmCat);
                 //$this->mapping[$keycrmCat->id] = $existingCategory['id'];
                 //echo "Updated Strapi category for KeyCRM category '{$keycrmCat->name}' (KeyCRM ID: {$keycrmCat->id}).\n";
@@ -156,13 +157,14 @@ class CategorySyncer
             'data' => [
                 'name'              => $parentKeycrmCat->name,
                 'keycrm_id'         => $parentKeycrmCat->id,
-                'parent_categories' => $parentCategories,
+                'parent_category'   => $parentCategories,
                 'slug'              => strtolower($slug),
-                'collection'        => false
             ]
         ];
 
-        return $this->curlPost($this->strapiBaseUrl . '/api/categories', $data)['data'];
+        $responce = $this->curlPost($this->strapiBaseUrl . '/api/categories', $data);
+
+        return $responce['data'];
     }
 
     /**
@@ -197,9 +199,8 @@ class CategorySyncer
             'data' => [
                 'name'              => $keycrmCat->name,
                 'keycrm_id'         => $keycrmCat->id,
-                'parent_categories' => $parentCategories,
+                'parent_category'   => $parentCategories,
                 'slug'              => strtolower($slug),
-                'collection'        => false
             ]
         ];
 
