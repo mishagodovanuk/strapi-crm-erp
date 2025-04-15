@@ -89,7 +89,7 @@ class ProductSyncer
 //                'sku'         => $product->sku,
 //                'min_price'   => $product->min_price,
 //                'max_price'   => $product->max_price,
-                'currency' => 'грн',
+                'currency' => [1], //used to be UA gryvna
                 'categories'  => $categoryId ? [$categoryId] : []
             ]
         ];
@@ -237,7 +237,7 @@ class ProductSyncer
      */
     private function createStockForArticle($articleId, int $quantity): void
     {
-        $url = $this->strapiBaseUrl . '/api/stocks';
+        $url = $this->strapiBaseUrl . '/api/product-leftovers';
         $data = [
             'data' => [
                 'article'  => $articleId,
