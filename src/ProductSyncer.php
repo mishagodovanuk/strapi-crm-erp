@@ -89,7 +89,7 @@ class ProductSyncer
 //                'sku'         => $product->sku,
 //                'min_price'   => $product->min_price,
 //                'max_price'   => $product->max_price,
-                'currency' => [1], //used to be UA gryvna
+                'currency' => 1, //used to be UA gryvna
                 'categories'  => $categoryId ? [$categoryId] : []
             ]
         ];
@@ -177,11 +177,11 @@ class ProductSyncer
         $data = [
             'data' => [
                 'sku'                 => $offer['sku'] ?: $offer['barcode'],
-                'descriptionInHeader' => $offer['barcode'],
                 'keycrm_id'           => $offer['id'],
                 'product'             => $strapiProductId,
                 'size'                => $sizeId ? [$sizeId - 1] : null,
                 'color'               => $colorId ? [$colorId - 1] : null,
+                'price'               => $offer['price']
             ]
         ];
 
