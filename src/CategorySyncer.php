@@ -78,6 +78,10 @@ class CategorySyncer
                 //$this->mapping[$keycrmCat->id] = $existingCategory['id'];
                 //echo "Updated Strapi category for KeyCRM category '{$keycrmCat->name}' (KeyCRM ID: {$keycrmCat->id}).\n";
             } else {
+                if (empty($keycrmCat->parent_id)) {
+                    continue;
+                }
+
                 $newCategory = $this->createStrapiCategory($keycrmCat);
 
                 if ($newCategory && isset($newCategory['id'])) {
@@ -137,6 +141,10 @@ class CategorySyncer
         }
 
         $parentCategories = [];
+
+        if (empty($parentKeycrmCat->parent_id)) {
+            return null;
+        }
 
         if ($parentKeycrmCat->parent_id) {
             $grandParentStrapi = $this->getOrCreateStrapiCategoryByKeycrmId($parentKeycrmCat->parent_id);
