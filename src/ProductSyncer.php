@@ -123,10 +123,9 @@ class ProductSyncer
             $newArticle = $this->createStrapiArticle($strapiProductId, $offer);
             if ($newArticle && isset($newArticle['id'])) {
                 echo "Created article with Strapi ID: " . $newArticle['id'] . "\n";
-                // Create a stock record for the article if available.
-                if (isset($offer['leftover']) && isset($offer['leftover']['quantity'])) {
-                    $this->createStockForArticle($newArticle['id'], $offer['leftover']['quantity']);
-                }
+
+                $this->createStockForArticle($newArticle['id'], $offer['id']);
+
             }
         }
     }
@@ -232,23 +231,71 @@ class ProductSyncer
         return $response['data']['id'] ?? null;
     }
 
-    /**
-     * Create a stock record in Strapi for an article.
-     */
-    private function createStockForArticle($articleId, int $quantity): void
+    private function createStockForArticle($articleId, int $keycrmOfferId): void
     {
-        $url = $this->strapiBaseUrl . '/api/product-leftovers';
+        // 1. Отримуємо залишки по складам з KeyCRM
+        $stocksResponse = $this->keyCrmApi->offers()->getStocks([
+            'filter[offers_id]' => $keycrmOfferId,
+            'filter[details]' => 'true',
+        ]);
+
+        if (!isset($stocksResponse[0]['warehouse'])) {
+            return;
+        }
+
+        foreach ($stocksResponse[0]['warehouse'] as $warehouse) {
+            $storeName = $warehouse['name'];
+            $quantity = $warehouse['quantity'] ?? 0;
+            $id = $warehouse['id'];
+
+            if ($quantity <= 0) {
+                continue;
+            }
+
+            $storeId = $this->getOrCreateStore($storeName, $id);
+
+            if (!$storeId) {
+                echo "Failed to get or create store: {$storeName}\n";
+                continue;
+            }
+
+            // 3. Створюємо залишок у Strapi
+            $url = $this->strapiBaseUrl . '/api/product-leftovers';
+            $data = [
+                'data' => [
+                    'product_articles' => ($articleId - 1),
+                    'quantity' => $quantity,
+                    'dictionary_store' => $storeId
+                ]
+            ];
+
+            $response = $this->curlPost($url, $data);
+            if ($response && isset($response['data'])) {
+                echo "Created stock for article ID {$articleId} in store '{$storeName}' with quantity {$quantity}.\n";
+            }
+        }
+    }
+
+    private function getOrCreateStore(string $name, $warehouseId): ?int
+    {
+        $url = $this->strapiBaseUrl . '/api/dictionary-stores?filters[name][$eq]=' . urlencode($name);
+        $response = $this->curlGet($url);
+
+        if (isset($response['data']) && count($response['data']) > 0) {
+            return $response['data'][0]['id'];
+        }
+
+        $url = $this->strapiBaseUrl . '/api/dictionary-stores';
         $data = [
             'data' => [
-                'article'  => $articleId,
-                'quantity' => $quantity,
+                'name' => $name,
+                'keycrm_id' => (int)$warehouseId
             ]
         ];
         $response = $this->curlPost($url, $data);
-        if ($response && isset($response['data'])) {
-            echo "Created stock for article ID {$articleId} with quantity {$quantity}.\n";
-        }
+        return $response['data']['id'] ?? null;
     }
+
 
     /**
      * Helper for GET requests using cURL.
