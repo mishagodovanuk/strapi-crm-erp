@@ -251,7 +251,7 @@ class ProductSyncer
             $id = $warehouse['id'];
 
             if ($quantity <= 0) {
-                continue;
+                //continue; //TODO temporary create 0 stocks leftovers for future purposes
             }
 
             $storeId = $this->getOrCreateStore($storeName, $id);
@@ -267,7 +267,7 @@ class ProductSyncer
                 'data' => [
                     'product_articles' => ($articleId - 1),
                     'quantity' => $quantity,
-                    'dictionary_store' => $storeId
+                    'dictionary_store' => ($storeId - 1),
                 ]
             ];
 
