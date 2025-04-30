@@ -302,42 +302,67 @@ class ProductSyncer
     /**
      * Helper for GET requests using cURL.
      */
-    private function curlGet(string $url): array
+    private function curlGet(string $url, int $attempt = 0): array
     {
+        usleep(200_000);
+
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
         if ($this->strapiToken) {
             curl_setopt($ch, CURLOPT_HTTPHEADER, [
                 'Authorization: Bearer ' . $this->strapiToken
             ]);
         }
+
         $response = curl_exec($ch);
+
         if (curl_errno($ch)) {
             throw new \Exception('GET request error: ' . curl_error($ch));
         }
+
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
-        return json_decode($response, true);
+
+        if ($status === 429 && $attempt < 3) {
+            sleep(1);
+
+            return $this->curlGet($url, $attempt + 1);
+        }
+
+        return json_decode($response, true) ?: [];
     }
 
     /**
-     * Helper for POST requests using cURL.
+     * Helper for POST requests using cURL, with simple throttling + retry on 429.
      */
-    private function curlPost(string $url, array $data): ?array
+    private function curlPost(string $url, array $data, int $attempt = 0): ?array
     {
+        usleep(200_000);
+
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         $headers = ['Content-Type: application/json'];
+
         if ($this->strapiToken) {
             $headers[] = 'Authorization: Bearer ' . $this->strapiToken;
         }
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         $response = curl_exec($ch);
+
         if (curl_errno($ch)) {
             throw new \Exception('POST request error: ' . curl_error($ch));
         }
+        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
+
+        if ($status === 429 && $attempt < 3) {
+            sleep(1);
+            return $this->curlPost($url, $data, $attempt + 1);
+        }
+
         return json_decode($response, true);
     }
 
