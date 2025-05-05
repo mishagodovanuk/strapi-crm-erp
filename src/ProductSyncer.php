@@ -275,9 +275,9 @@ class ProductSyncer
             $quantity  = $warehouse['quantity'] ?? 0;
             $id        = $warehouse['id'];
 
-            if ($quantity == 0) {
-                continue;
-            }
+//            if ($quantity == 0) {
+//                continue;
+//            }
 
             $storeId = $this->getOrCreateStore($storeName, $id);
             if (!$storeId) {
