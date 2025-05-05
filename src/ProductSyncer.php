@@ -5,6 +5,7 @@ namespace Mihod\MarylineService;
 use KeyCrm\KeyCrmApi;
 use KeyCrm\Client\DefaultHttpClient;
 use KeyCrm\Model\Product;
+use KeyCrm\Exception\KeyCrmException;
 
 class ProductSyncer
 {
@@ -32,21 +33,31 @@ class ProductSyncer
     {
         // Fetch configurable products from KeyCRM.
         $keycrmProducts = $this->keyCrmApi->products()->list();
+        $counter = 0;
 
         foreach ($keycrmProducts as $product) {
+            $counter++;
+
             // Check if product exists in Strapi by keycrm_id.
             $existingProduct = $this->getStrapiProductByKeycrmId($product->id);
             if ($existingProduct) {
                 echo "Product '{$product->name}' already exists in Strapi.\n";
                 continue;
             }
+
             // Create the configurable product in Strapi.
             $newProduct = $this->createStrapiProduct($product);
             if ($newProduct && isset($newProduct['id'])) {
                 $this->mapping[$product->id] = $newProduct['id'];
                 echo "Created product '{$product->name}' with Strapi ID: " . $newProduct['id'] . "\n";
+
                 // Sync simple variants (articles) using the offers endpoint.
                 $this->syncProductArticles($newProduct['id'] - 1, $product->id);
+            }
+
+            // every 10 items, pause for 2 seconds
+            if ($counter % 10 === 0) {
+                sleep(2);
             }
         }
     }
@@ -112,7 +123,24 @@ class ProductSyncer
             'filter[product_id]' => $keycrmProductId,
             'limit'      => 50
         ];
-        $offers = $this->keyCrmApi->offers()->list($query);
+
+        $offers = [];
+
+        try {
+            $offers = $this->keyCrmApi->offers()->list($query);
+        } catch (KeyCrmException $e) {
+            echo "Issue with article syncing by KEYCRM ID: {$keycrmProductId} - {$e->getMessage()}";
+
+            sleep(1);
+
+            try {
+                $offers = $this->keyCrmApi->offers()->list($query);
+            } catch (KeyCrmException $exception) {
+                echo "Issue with article syncing by KEYCRM ID: {$keycrmProductId} - {$e->getMessage()}";
+
+                return;
+            }
+        }
 
         foreach ($offers as $offer) {
             $existingArticle = $this->getStrapiArticleByKeycrmId($offer['id']);
@@ -235,38 +263,33 @@ class ProductSyncer
 
     private function createStockForArticle($articleId, int $keycrmOfferId): void
     {
-        // 1. Отримуємо залишки по складам з KeyCRM
-        $stocksResponse = $this->keyCrmApi->offers()->getStocks([
-            'filter[offers_id]' => $keycrmOfferId,
-            'filter[details]' => 'true',
-        ]);
+        $stocksResponse = $this->getStocksWithRetry($keycrmOfferId);
 
-        if (!isset($stocksResponse[0]['warehouse'])) {
+        if (empty($stocksResponse) || !isset($stocksResponse[0]['warehouse'])) {
             return;
         }
 
         foreach ($stocksResponse[0]['warehouse'] as $warehouse) {
-            $storeName = $warehouse['name'];
-            $quantity = $warehouse['quantity'] ?? 0;
-            $id = $warehouse['id'];
 
-            if ($quantity <= 0) {
-                //continue; //TODO temporary create 0 stocks leftovers for future purposes
+            $storeName = $warehouse['name'];
+            $quantity  = $warehouse['quantity'] ?? 0;
+            $id        = $warehouse['id'];
+
+            if ($quantity == 0) {
+                continue;
             }
 
             $storeId = $this->getOrCreateStore($storeName, $id);
-
             if (!$storeId) {
                 echo "Failed to get or create store: {$storeName}\n";
                 continue;
             }
 
-            // 3. Створюємо залишок у Strapi
             $url = $this->strapiBaseUrl . '/api/product-leftovers';
             $data = [
                 'data' => [
-                    'product_articles' => ($articleId - 1),
-                    'quantity' => $quantity,
+                    'product_article' => ($articleId - 1),
+                    'quantity'         => $quantity,
                     'dictionary_store' => ($storeId - 1),
                 ]
             ];
@@ -276,6 +299,45 @@ class ProductSyncer
                 echo "Created stock for article ID {$articleId} in store '{$storeName}' with quantity {$quantity}.\n";
             }
         }
+    }
+
+    /**
+     * Пробуємо getStocks до $maxRetries разів з короткою затримкою на 429,
+     * після чого повертаємо пустий масив (і ніяких виключень).
+     */
+    private function getStocksWithRetry(int $keycrmOfferId): array
+    {
+        $query      = [
+            'filter[offers_id]' => $keycrmOfferId,
+            'filter[details]'   => 'true',
+        ];
+        $maxRetries = 3;
+        $delayUs    = 1000_000;
+        $attempt    = 0;
+
+        while ($attempt < $maxRetries) {
+            try {
+                return $this->keyCrmApi->offers()->getStocks($query);
+            } catch (KeyCrmException $e) {
+                $attempt++;
+
+                if (strpos($e->getMessage(), '429') !== false) {
+                    echo "429 Too Many Attempts on offer {$keycrmOfferId}, retry {$attempt}/{$maxRetries} after " . ($delayUs / 1e6) . "s\n";
+                    usleep($delayUs);
+
+                    continue;
+                }
+
+                echo "Request error on offer {$keycrmOfferId}, retry {$attempt}/{$maxRetries} after " . ($delayUs / 1e6) . "s\n";
+                usleep($delayUs);
+
+                continue;
+            }
+        }
+
+        echo "Skipping stocks for offer {$keycrmOfferId} after {$maxRetries} retries.\n";
+
+        return [];
     }
 
     private function getOrCreateStore(string $name, $warehouseId): ?int
@@ -295,6 +357,7 @@ class ProductSyncer
             ]
         ];
         $response = $this->curlPost($url, $data);
+
         return $response['data']['id'] ?? null;
     }
 
@@ -304,8 +367,6 @@ class ProductSyncer
      */
     private function curlGet(string $url, int $attempt = 0): array
     {
-        usleep(200_000);
-
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
@@ -314,18 +375,27 @@ class ProductSyncer
                 'Authorization: Bearer ' . $this->strapiToken
             ]);
         }
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
 
         $response = curl_exec($ch);
 
         if (curl_errno($ch)) {
+            curl_close($ch);
+
             throw new \Exception('GET request error: ' . curl_error($ch));
         }
-
         $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
+        if ($status >= 500 && $status < 600) {
+            echo "Server error {$status} on GET {$url}, skipping.\n";
+
+            return [];
+        }
+
         if ($status === 429 && $attempt < 3) {
-            sleep(1);
+            usleep(200_000);
 
             return $this->curlGet($url, $attempt + 1);
         }
@@ -333,33 +403,41 @@ class ProductSyncer
         return json_decode($response, true) ?: [];
     }
 
-    /**
-     * Helper for POST requests using cURL, with simple throttling + retry on 429.
-     */
     private function curlPost(string $url, array $data, int $attempt = 0): ?array
     {
-        usleep(200_000);
-
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         $headers = ['Content-Type: application/json'];
 
         if ($this->strapiToken) {
             $headers[] = 'Authorization: Bearer ' . $this->strapiToken;
         }
+
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+
         $response = curl_exec($ch);
 
         if (curl_errno($ch)) {
+            curl_close($ch);
+
             throw new \Exception('POST request error: ' . curl_error($ch));
         }
         $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
+        if ($status >= 500 && $status < 600) {
+            echo "Server error {$status} on POST {$url}, skipping.\n";
+
+            return null;
+        }
+
         if ($status === 429 && $attempt < 3) {
-            sleep(1);
+            usleep(200_000);
+
             return $this->curlPost($url, $data, $attempt + 1);
         }
 
@@ -476,6 +554,6 @@ class ProductSyncer
             'sirij kosa'               => '#909090',
         ];
 
-        return $colorMap[$colorName];
+        return $colorMap[$colorName] ?? '#000000';
     }
 }
