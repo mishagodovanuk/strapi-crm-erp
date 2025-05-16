@@ -376,7 +376,8 @@ class ProductSyncer
         $data = [
             'data' => [
                 'name' => $name,
-                'keycrm_id' => (int)$warehouseId
+                'keycrm_id' => (int)$warehouseId,
+                'publicName' => $name
             ]
         ];
         $response = $this->curlPost($url, $data);
