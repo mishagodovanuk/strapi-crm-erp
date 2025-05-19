@@ -81,7 +81,7 @@ class ProductSyncer
     private function createStrapiProduct(Product $product): ?array
     {
         $url = $this->strapiBaseUrl . '/api/products';
-s        $categoryId = null;
+        $categoryId = null;
         // If the product has a category, look it up in Strapi by keycrm_id.
         if ($product->category_id) {
             $catUrl = $this->strapiBaseUrl . '/api/categories?populate=*&filters[keycrm_id][$eq]=' . $product->category_id;
