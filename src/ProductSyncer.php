@@ -31,31 +31,28 @@ class ProductSyncer
      */
     public function syncProducts(): void
     {
-        // Fetch configurable products from KeyCRM.
         $keycrmProducts = $this->keyCrmApi->products()->list();
         $counter = 0;
 
         foreach ($keycrmProducts as $product) {
             $counter++;
 
-            // Check if product exists in Strapi by keycrm_id.
             $existingProduct = $this->getStrapiProductByKeycrmId($product->id);
+
             if ($existingProduct) {
                 echo "Product '{$product->name}' already exists in Strapi.\n";
                 continue;
             }
 
-            // Create the configurable product in Strapi.
             $newProduct = $this->createStrapiProduct($product);
+
             if ($newProduct && isset($newProduct['id'])) {
                 $this->mapping[$product->id] = $newProduct['id'];
                 echo "Created product '{$product->name}' with Strapi ID: " . $newProduct['id'] . "\n";
 
-                // Sync simple variants (articles) using the offers endpoint.
                 $this->syncProductArticles($newProduct['id'] - 1, $product->id);
             }
 
-            // every 10 items, pause for 2 seconds
             if ($counter % 10 === 0) {
                 sleep(2);
             }
@@ -69,6 +66,7 @@ class ProductSyncer
     {
         $url = $this->strapiBaseUrl . '/api/products?populate=*&filters[keycrm_id][$eq]=' . $keycrmId;
         $response = $this->curlGet($url);
+
         if (isset($response['data']) && count($response['data']) > 0) {
             return $response['data'][0];
         }
@@ -82,10 +80,11 @@ class ProductSyncer
     {
         $url = $this->strapiBaseUrl . '/api/products';
         $categoryId = null;
-        // If the product has a category, look it up in Strapi by keycrm_id.
+
         if ($product->category_id) {
             $catUrl = $this->strapiBaseUrl . '/api/categories?populate=*&filters[keycrm_id][$eq]=' . $product->category_id;
             $catResponse = $this->curlGet($catUrl);
+
             if (isset($catResponse['data']) && count($catResponse['data']) > 0) {
                 $categoryId = $catResponse['data'][0]['id'] - 1;
             }
@@ -100,6 +99,7 @@ class ProductSyncer
 //                'sku'         => $product->sku,
 //                'min_price'   => $product->min_price,
 //                'max_price'   => $product->max_price,
+            //Default mock for info.
                 'info' => [
                     'text'=> "## Опис товару і догляд\n" .
                     "Товар з пальтової тканини, дрібноворсистої з принтом в ялинку. " .
@@ -131,6 +131,7 @@ class ProductSyncer
         ];
 
         $response = $this->curlPost($url, $data);
+
         return $response['data'] ?? null;
     }
 
@@ -151,13 +152,13 @@ class ProductSyncer
 
         $offers = [];
         $maxRetries = 10;
-        $delayUs = 1000_000; // 1 second in microseconds
+        $delayUs = 1000_000;
         $attempt = 0;
 
         while ($attempt < $maxRetries) {
             try {
                 $offers = $this->keyCrmApi->offers()->list($query);
-                break; // Success, exit retry loop
+                break;
             } catch (KeyCrmException $e) {
                 $attempt++;
                 if (strpos($e->getMessage(), '429') !== false) {
@@ -178,11 +179,14 @@ class ProductSyncer
 
         foreach ($offers as $offer) {
             $existingArticle = $this->getStrapiArticleByKeycrmId($offer['id']);
+
             if ($existingArticle) {
                 echo "Article with keycrm_id {$offer['id']} already exists.\n";
                 continue;
             }
+
             $newArticle = $this->createStrapiArticle($strapiProductId, $offer);
+
             if ($newArticle && isset($newArticle['id'])) {
                 echo "Created article with Strapi ID: " . $newArticle['id'] . "\n";
                 $this->createStockForArticle($newArticle['id'], $offer['id']);
@@ -197,9 +201,11 @@ class ProductSyncer
     {
         $url = $this->strapiBaseUrl . '/api/articles?populate=*&filters[keycrm_id][$eq]=' . $keycrmId;
         $response = $this->curlGet($url);
+
         if (isset($response['data']) && count($response['data']) > 0) {
             return $response['data'][0];
         }
+
         return null;
     }
 
@@ -212,8 +218,8 @@ class ProductSyncer
     {
         $url = $this->strapiBaseUrl . '/api/product-articles';
 
-        // Check or create size from offer properties.
         $sizeId = null;
+
         if (isset($offer['properties']) && is_array($offer['properties'])) {
             foreach ($offer['properties'] as $prop) {
                 if (isset($prop['name']) && mb_strtolower($prop['name']) === mb_strtolower('розмір')) {
@@ -222,8 +228,9 @@ class ProductSyncer
                 }
             }
         }
-        // Check or create color from offer properties.
+
         $colorId = null;
+
         if (isset($offer['properties']) && is_array($offer['properties'])) {
             foreach ($offer['properties'] as $prop) {
                 if (isset($prop['name']) && mb_strtolower($prop['name']) === mb_strtolower('колір')) {
@@ -245,6 +252,7 @@ class ProductSyncer
         ];
 
         $response = $this->curlPost($url, $data);
+
         return $response['data'] ?? null;
     }
 
@@ -258,7 +266,7 @@ class ProductSyncer
         if (isset($response['data']) && count($response['data']) > 0) {
             return $response['data'][0]['id'];
         }
-        // Create new size.
+
         $url = $this->strapiBaseUrl . '/api/dictionary-sizes';
         $data = [
             'data' => [
@@ -267,6 +275,7 @@ class ProductSyncer
             ]
         ];
         $response = $this->curlPost($url, $data);
+
         return $response['data']['id'] ?? null;
     }
 
@@ -277,10 +286,11 @@ class ProductSyncer
     {
         $url = $this->strapiBaseUrl . '/api/dictionary-colors?filters[name][$eq]=' . urlencode($name);
         $response = $this->curlGet($url);
+
         if (isset($response['data']) && count($response['data']) > 0) {
             return $response['data'][0]['id'];
         }
-        // Create new color.
+
         $url = $this->strapiBaseUrl . '/api/dictionary-colors';
         $data = [
             'data' => [
@@ -290,6 +300,7 @@ class ProductSyncer
             ]
         ];
         $response = $this->curlPost($url, $data);
+
         return $response['data']['id'] ?? null;
     }
 
@@ -311,6 +322,7 @@ class ProductSyncer
 //            }
 
             $storeId = $this->getOrCreateStore($storeName, $id);
+
             if (!$storeId) {
                 echo "Failed to get or create store: {$storeName}\n";
                 continue;
@@ -326,6 +338,7 @@ class ProductSyncer
             ];
 
             $response = $this->curlPost($url, $data);
+
             if ($response && isset($response['data'])) {
                 echo "Created stock for article ID {$articleId} in store '{$storeName}' with quantity {$quantity}.\n";
             }
@@ -363,6 +376,7 @@ class ProductSyncer
         }
 
         echo "stocks for offer {$keycrmOfferId} after {$maxRetries} retries.\n";
+
         return [];
     }
 
@@ -370,18 +384,30 @@ class ProductSyncer
     {
         $url = $this->strapiBaseUrl . '/api/dictionary-stores?filters[name][$eq]=' . urlencode($name);
         $response = $this->curlGet($url);
+
         if (isset($response['data']) && count($response['data']) > 0) {
             return $response['data'][0]['id'];
         }
+
         $url = $this->strapiBaseUrl . '/api/dictionary-stores';
         $data = [
             'data' => [
                 'name' => $name,
                 'keycrm_id' => (int)$warehouseId,
-                'publicName' => $name
+                'publicName' => $name,
+                //default mock for info.
+                'info' => [
+                    'city'=> "Львів",
+                    'address'=> "Львів, поблизу оперного Театру, вул. Лесі Українки 7",
+                    'mapLink'=> "https://www.google.com/maps/place/maryline+show+room/@49.8507382,24.0203677,21z/data=!4m6!3m5!1s0x473addab589e896d:0x98f7fa6347a2610!8m2!3d49.8507279!4d24.02039!16s%2Fg%2F11jfsds0vm?entry=ttu&g_ep=EgoyMDI1MDMwNC4wIKXMDSoASAFQAw%3D%3D",
+                    'phone'=> "+38 097 921 1845",
+                    'scheduleWeekdays'=> "10:00, 19:00",
+                    'scheduleWeekends'=> "11:00, 19:00",
+                ],
             ]
         ];
         $response = $this->curlPost($url, $data);
+
         return $response['data']['id'] ?? null;
     }
 
@@ -392,28 +418,35 @@ class ProductSyncer
     {
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
         if ($this->strapiToken) {
             curl_setopt($ch, CURLOPT_HTTPHEADER, [
                 'Authorization: Bearer ' . $this->strapiToken
             ]);
         }
+
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
         $response = curl_exec($ch);
+
         if (curl_errno($ch)) {
             curl_close($ch);
             throw new \Exception('GET request error: ' . curl_error($ch));
         }
+
         $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
+
         if ($status >= 500 && $status < 600) {
             echo "Server error {$status} on GET {$url}, skipping.\n";
             return [];
         }
+
         if ($status === 429 && $attempt < 3) {
             usleep(200_000);
             return $this->curlGet($url, $attempt + 1);
         }
+
         return json_decode($response, true) ?: [];
     }
 
@@ -424,27 +457,34 @@ class ProductSyncer
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
         $headers = ['Content-Type: application/json'];
+
         if ($this->strapiToken) {
             $headers[] = 'Authorization: Bearer ' . $this->strapiToken;
         }
+
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
         $response = curl_exec($ch);
+
         if (curl_errno($ch)) {
             curl_close($ch);
             throw new \Exception('POST request error: ' . curl_error($ch));
         }
+
         $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
+
         if ($status >= 500 && $status < 600) {
             echo "Server error {$status} on POST {$url}, skipping.\n";
             return null;
         }
+
         if ($status === 429 && $attempt < 3) {
             usleep(200_000);
             return $this->curlPost($url, $data, $attempt + 1);
         }
+
         return json_decode($response, true);
     }
 
@@ -457,6 +497,7 @@ class ProductSyncer
         $transliterated = $transliterator->transliterate($slug);
         $slug = $transliterated;
         $slug = str_replace(' ', '-', $slug);
+
         return $slug;
     }
 
