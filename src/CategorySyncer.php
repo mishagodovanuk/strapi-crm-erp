@@ -76,7 +76,7 @@ class CategorySyncer
                 //TODO used for updating functionality, temporary disabled.
                 //$this->updateStrapiCategory($existingCategory['id'], $keycrmCat);
                 //$this->mapping[$keycrmCat->id] = $existingCategory['id'];
-                //echo "Updated Strapi category for KeyCRM category '{$keycrmCat->name}' (KeyCRM ID: {$keycrmCat->id}).\n";
+                echo "Existed Strapi category for KeyCRM category '{$keycrmCat->name}' (KeyCRM ID: {$keycrmCat->id}).\n";
             } else {
                 if (empty($keycrmCat->parent_id)) {
                     continue;

@@ -7,9 +7,14 @@
     ],
     "require": {
         "mishagodovanuk/keycrm": "dev-main",
-        "ext-iconv": "*"
+        "ext-iconv": "*",
+        "ext-mbstring": "*",
+        "ext-intl": "*"
     }
     ,
+    "require-dev": {
+        "roave/security-advisories": "dev-latest"
+    },
     "minimum-stability": "dev",
     "prefer-stable": true,
     "name": "mihod/maryline-service",
